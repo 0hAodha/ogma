@@ -1,25 +1,30 @@
 #!/usr/bin/env perl
 #
-# speedread:  A simple terminal-based open source spritz-alike
+# ogma: A featureful terminal speed-reading tool using RSVP (Rapid Serial Visual Presentation) based on speedread.
 #
 # Show input text as a per-word RSVP (rapid serial visual presentation)
 # aligned on optimal reading points.  This kind of input mode allows
 # reading text at a much more rapid pace than usual as the eye can
 # stay fixed on a single place.
 #
-# (c) Petr Baudis <pasky@ucw.cz>  2014
-# MIT licence
+# Original work (c) Petr Baudis <pasky@ucw.cz> 2014
+# Original work licensed under MIT License (see LICENSE.MIT)
 #
-# Usage: cat file.txt | speedread [-w WORDSPERMINUTE] [-r RESUMEPOINT] [-m]
+# Modifications and additions (c) Aindréas Ó hAodha <aindreas@ohaodha.ie> 2025 
+# Modifications licensed under GPL v3 (see LICENSE.GPL)
 #
-# The default of 250 words per minut is very timid, designed so that
+# This combined work is distributed under GPL v3.
+#
+# Usage: cat file.txt | ogma [-w WORDSPERMINUTE] [-r RESUMEPOINT] [-m]
+#
+# The default of 250 words per minute is very timid, designed so that
 # you get used to this.  Be sure to try cranking this up, 500wpm
 # should still be fairly easy to follow even for beginners.
 #
-# speedread can join short words together if you specify the -m switch.
+# ogma can join short words together if you specify the -m switch.
 # It did not work well for pasky so far, though.
 #
-# speedread is slightly interactive, with these controls accepted:
+# ogma is slightly interactive, with these controls accepted:
 #
 #   [ - slow down by 10%
 #   ] - speed up by 10%
