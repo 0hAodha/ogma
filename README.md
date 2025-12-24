@@ -20,6 +20,7 @@ ogma -w 500 tea.txt
 * `-w WORDS_PER_MINUTE` - Set reading speed (default: 250)
 * `-r RESUME_POINT` - Resume from a specific word position
 * `-m` - Join short adjacent words together
+* `-b` - Enable bionic reading (make the prefix of a word bold and the rest normal weight)
 
 ## License
 
