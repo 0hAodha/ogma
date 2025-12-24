@@ -28,6 +28,8 @@
 #
 #   [ - slow down by 10%
 #   ] - speed up by 10%
+#   b - toggle bionic reading mode
+#   m - toggle multiword mode
 #   space - pause (and show the last two lines)
 
 use warnings;
@@ -173,6 +175,12 @@ sub process_keys {
 
         } elsif ($ch eq ']') {
             $wpm = int($wpm * 1.1);
+
+        } elsif ($ch eq 'b') {
+            $bionic = not $bionic;
+
+        } elsif ($ch eq 'm') {
+            $multiword = not $multiword;
 
         } elsif ($ch eq ' ') {
             $paused = not $paused;
