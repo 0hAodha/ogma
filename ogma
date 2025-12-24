@@ -15,7 +15,7 @@
 #
 # This combined work is distributed under GPL v3.
 #
-# Usage: ogma [-w WORDSPERMINUTE] [-r RESUMEPOINT] [-m] file.txt
+# Usage: ogma [-w WORDSPERMINUTE] [-r RESUMEPOINT] [-m] [-b] file.txt
 #
 # The default of 250 words per minute is very timid, designed so that
 # you get used to this.  Be sure to try cranking this up, 500wpm
@@ -38,6 +38,7 @@ use v5.14;
 my $wpm = 250;
 my $resume = 0;
 my $multiword = 0;
+my $bionic = 0;
 
 
 use utf8;
@@ -51,7 +52,8 @@ use Time::HiRes qw(time sleep gettimeofday tv_interval);
 use Getopt::Long;
 GetOptions("wpm|w=i" => \$wpm,
        "resume|r=i" => \$resume,
-       "multiword|m" => \$multiword);
+       "multiword|m" => \$multiword,
+       "bionic|b" => \$bionic);
 
 my $wordtime = 0.9; # relative to wpm
 my $lentime = 0.04; # * sqrt(length $word), relative to wpm
@@ -120,7 +122,7 @@ sub show_word {
         . color("red")
         . $pivotch
         . color("reset")
-        . color("bold")
+        . ($bionic ? "" : color("bold"))
         . substr($word, $i+1)
         . color("reset")
         . " " x ($cursorpos - (($ORPvisualpos - $i) + length($word)))
