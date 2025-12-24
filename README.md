@@ -13,7 +13,9 @@ ogma -w 500 tea.txt
 
 * `[` - slow down by 10%
 * `]` - speed up by 10%
-* `space` - pause and show context
+* `b` - toggle bionic reading mode
+* `m` - toggle multiword mode
+* space - pause (and show the last two lines)
 
 ## Options
 
