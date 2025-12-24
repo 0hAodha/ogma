@@ -30,6 +30,7 @@
 #   ] - speed up by 10%
 #   b - toggle bionic reading mode
 #   m - toggle multiword mode
+#   q - quit
 #   space - pause (and show the last two lines)
 
 use warnings;
@@ -42,31 +43,27 @@ my $resume = 0;
 my $multiword = 0;
 my $bionic = 0;
 
-
 use utf8;
 binmode(STDIN, ":encoding(UTF-8)");
 binmode(STDOUT, ":encoding(UTF-8)");
 
 use Term::ANSIColor;
+use Term::ReadKey;
 use POSIX qw(ceil floor);
 use Time::HiRes qw(time sleep gettimeofday tv_interval);
-
 use Getopt::Long;
+
 GetOptions("wpm|w=i" => \$wpm,
        "resume|r=i" => \$resume,
        "multiword|m" => \$multiword,
        "bionic|b" => \$bionic);
 
-my $wordtime = 0.9; # relative to wpm
-my $lentime = 0.04; # * sqrt(length $word), relative to wpm
-my $commatime = 2; # relative to wpm
-my $fstoptime = 3; # relative to wpm
-my $multitime = 1.2; # relative to wpm
-my $firsttime = 0.2; # [s]
-my $ORPloc = 0.35;
-my $ORPmax = 0.2;
-my $ORPvisualpos = 20;
-my $cursorpos = 64;
+my $wordtime = 0.9;
+my $lentime = 0.04;
+my $commatime = 2;
+my $fstoptime = 3;
+my $multitime = 1.2;
+my $firsttime = 0.2;
 my $paused = 0;
 my $current_word;
 my $current_orp;
@@ -75,66 +72,178 @@ my $next_input_time = 0;
 my $skipped = 0;
 
 my @lastlines;
-my $tty = rawinput->new();
-$| = 1;
+my ($term_width, $term_height);
+my $center_row;
+my $center_col;
 
 my $wordcounter = 0;
 my $lettercounter = 0;
+my $total_words = 0;  # Total words in document
 my $t0 = [gettimeofday];
-sub print_stats {
-    my $elapsed = tv_interval($t0, [gettimeofday]);
-    my $truewpm = $wordcounter / $elapsed * 60;
-    printf("\n %.2fs, %d words, %d letters, %s%.2f%s true wpm\n",
-        $elapsed, $wordcounter, $lettercounter,
-        color('bold green'), $truewpm, color('reset'));
-}
-$SIG{INT} = sub {
-    print_stats;
-    my $resume_word = $wordcounter + $resume;
-    say " To resume from this point run with argument -r $resume_word";
-    exit;
-};
 
-main();
-
-# ORP: Optical Recognition Point (the red-colored alignment pilot),
-# the way Spritz probably does it.
-sub find_ORP {
-    my ($word, $ORPloc) = @_;
-
-    return 4 if (length($word) > 13);
-    return (0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3)[length($word)];
+# Terminal state management
+sub init_terminal {
+    # Redirect stdin to /dev/tty for keyboard input
+    # (file input will come from command line arg or pipe before this)
+    open(my $tty, '<', '/dev/tty') or die "Cannot open /dev/tty: $!";
+    *STDIN = $tty;
+    
+    ReadMode('cbreak');
+    
+    update_terminal_size();
+    clear_screen();
+    hide_cursor();
 }
 
+sub cleanup_terminal {
+    show_cursor();
+    clear_screen();
+    ReadMode('restore');
+}
+
+sub update_terminal_size {
+    ($term_width, $term_height) = GetTerminalSize();
+    $center_row = int($term_height / 2);
+    $center_col = int($term_width / 2);
+}
+
+sub clear_screen {
+    print "\033[2J";  # Clear entire screen
+}
+
+sub hide_cursor {
+    print "\033[?25l";
+}
+
+sub show_cursor {
+    print "\033[?25h";
+}
+
+sub move_cursor {
+    my ($row, $col) = @_;
+    print "\033[${row};${col}H";
+}
+
+sub clear_line {
+    print "\033[2K";
+}
+
+# Display functions
 sub show_guide {
-    # Top visual guide
-    say(" "x$ORPvisualpos . color('red') . "v" . color('reset') . "\033[K");
+    move_cursor($center_row - 1, $center_col);
+    print color('red') . "v" . color('reset');
 }
 
 sub show_word {
     my ($word, $i) = @_;
-
+    
+    # Clear the lines we'll use
+    move_cursor($center_row, 1);
+    clear_line();
+    
     my $pivotch = substr($word, $i, 1);
     $pivotch = "·" if $pivotch eq ' ';
-
-    print("\r\033[K"
-        . " " x ($ORPvisualpos - $i)
-        . color("bold")
-        . substr($word, 0, $i)
-        . color("red")
-        . $pivotch
-        . color("reset")
+    
+    # Calculate starting column so ORP is at center
+    my $word_start_col = $center_col - $i;
+    
+    move_cursor($center_row, $word_start_col);
+    
+    # Display word with formatting
+    print color("bold") . substr($word, 0, $i)
+        . color("red") . $pivotch . color("reset")
         . ($bionic ? "" : color("bold"))
         . substr($word, $i+1)
-        . color("reset")
-        . " " x ($cursorpos - (($ORPvisualpos - $i) + length($word)))
-        . "$wpm wpm"
-        . ($paused ? "  ".color("yellow")."PAUSED".color("reset") : ""));
+        . color("reset");
+}
+
+sub show_progress {
+    my $bottom_row = $term_height;
+    
+    # Bottom left: Speed and status
+    move_cursor($bottom_row, 1);
+    clear_line();
+    print "$wpm wpm";
+    
+    if ($paused) {
+        print "  " . color("yellow") . "PAUSED" . color("reset");
+    }
+    
+    if ($multiword) {
+        print "  " . color("cyan") . "[multi]" . color("reset");
+    }
+    
+    if ($bionic) {
+        print "  " . color("cyan") . "[bionic]" . color("reset");
+    }
+    
+    # Bottom center: Progress bar (if we know total words)
+    if ($total_words > 0) {
+        my $progress_width = int($term_width * 0.4);  # 40% of screen width
+        my $progress_start = int($term_width / 2) - int($progress_width / 2);
+        
+        my $percent = $wordcounter / $total_words;
+        my $filled = int($percent * $progress_width);
+        
+        move_cursor($bottom_row, $progress_start);
+        print color('green');
+        print "█" x $filled;
+        print color('dark white');
+        print "░" x ($progress_width - $filled);
+        print color('reset');
+        
+        # Show percentage
+        my $pct_text = sprintf(" %d%% ", int($percent * 100));
+        my $pct_col = $progress_start + $progress_width + 2;
+        move_cursor($bottom_row, $pct_col);
+        print $pct_text;
+    }
+    
+    # Bottom right: Word count
+    my $count_text = sprintf("Word %d", $wordcounter + $resume);
+    if ($total_words > 0) {
+        $count_text .= sprintf("/%d", $total_words + $resume);
+    }
+    move_cursor($bottom_row, $term_width - length($count_text) - 1);
+    print $count_text;
+}
+
+sub print_context {
+    my ($wn) = @_;
+    
+    # Show context lines above the word
+    if ($lastlines[1]) {
+        move_cursor($center_row - 3, 1);
+        clear_line();
+        # Truncate if too long for screen
+        my $line = $lastlines[1];
+        $line = substr($line, 0, $term_width - 2) if length($line) > $term_width - 2;
+        print $line;
+    }
+    
+    if ($lastlines[0]) {
+        move_cursor($center_row - 2, 1);
+        clear_line();
+        
+        my $line0 = $lastlines[0];
+        $line0 = substr($line0, 0, $term_width - 2) if length($line0) > $term_width - 2;
+        
+        # Highlight current word in context
+        $line0 =~ s/^((?:.*?(?:-|\s)+){$wn})(.*?)(-|\s)/$1 . colored($2, 'yellow') . $3/e;
+        print $line0;
+    }
+}
+
+# Word timing
+sub find_ORP {
+    my ($word) = @_;
+    return 4 if (length($word) > 13);
+    return (0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3)[length($word)];
 }
 
 sub word_time {
     my ($word) = @_;
-
+    
     my $time = $wordtime;
     if ($word =~ /[.?!]\W*$/) {
         $time = $fstoptime;
@@ -145,31 +254,17 @@ sub word_time {
     }
     $time += sqrt(length($word)) * $lentime;
     $time *= 60 / $wpm;
-
-    # Give user some time to focus on the first word, even with high wpm.
+    
     $time = $firsttime if ($wordcounter == 0 and $time < $firsttime);
-
+    
     return $time;
 }
 
-sub print_context {
-    my ($wn) = @_;
-    # One line up and to its beginning
-    print "\r\033[K\033[A\033[K";
-    # First line of context
-    say $lastlines[1] if $lastlines[1];
-    # In second line of context, highlight our word
-    my $line0 = $lastlines[0];
-    my $c0 = color('yellow');
-    my $c1 = color('reset');
-    $line0 =~ s/^((?:.*?(?:-|\s)+){$wn})(.*?)(-|\s)/$1$c0$2$c1$3/;
-    say $line0;
-}
-
+# Input handling
 sub process_keys {
     my ($word, $i, $wn) = @_;
-    while ($tty->key_pressed()) {
-        my $ch = $tty->getch();
+    
+    while (defined(my $ch = ReadKey(-1))) {  # -1 = non-blocking
         if ($ch eq '[') {
             $wpm = int($wpm * 0.9);
 
@@ -185,34 +280,84 @@ sub process_keys {
         } elsif ($ch eq ' ') {
             $paused = not $paused;
             if ($paused) {
-                # Print context.
                 print_context($wn);
                 show_guide();
                 show_word($word, $i);
-            }
-            else {
+            } else {
                 $next_word_time = time();
+                # Clear context lines
+                move_cursor($center_row - 3, 1);
+                clear_line();
+                move_cursor($center_row - 2, 1);
+                clear_line();
             }
+
+        } elsif ($ch eq 'q') {
+            return 'quit';
         }
     }
+    return '';
 }
 
+sub print_stats {
+    my $elapsed = tv_interval($t0, [gettimeofday]);
+    my $truewpm = $wordcounter / $elapsed * 60;
+
+    cleanup_terminal();
+
+    printf("\n%.2fs, %d words, %d letters, %s%.2f%s true wpm\n",
+        $elapsed, $wordcounter, $lettercounter,
+        color('bold green'), $truewpm, color('reset'));
+}
+
+# Signal handlers
+$SIG{INT} = sub {
+    print_stats();
+    my $resume_word = $wordcounter + $resume;
+    say " To resume from this point run with argument -r $resume_word";
+    exit;
+};
+
+$SIG{WINCH} = sub {
+    update_terminal_size();
+    clear_screen();
+};
+
+# Count total words (for progress bar)
+sub count_words {
+    my @lines = @_;
+    my $count = 0;
+    for my $line (@lines) {
+        my @words = grep { /./ } split /(?:-|\s)+/, $line;
+        $count += scalar(@words);
+    }
+    return $count;
+}
+
+# Main loop
 sub main {
+    # Read all input first to count words
+    my @all_lines = <>;
+    chomp @all_lines;
+    $total_words = count_words(@all_lines);
+
+    # Now initialize terminal (after stdin is free)
+    init_terminal();
+
+    clear_screen();
     show_guide();
+    show_progress();
 
     $next_word_time = time();
     $next_input_time = time();
 
-    while (<>) {
-        chomp;
-
-        unshift @lastlines, $_;
+    for my $line (@all_lines) {
+        unshift @lastlines, $line;
         pop @lastlines if @lastlines > 2;
 
-        my (@words) = grep { /./ } split /(?:-|\s)+/;
+        my (@words) = grep { /./ } split /(?:-|\s)+/, $line;
 
         if ($multiword) {
-            # Join adjecent short words
             for (my $i = 0; $i < $#words - 1; $i++) {
                 if (length($words[$i]) <= 3 and length($words[$i+1]) <= 3) {
                     $words[$i] .= ' ' . $words[$i+1];
@@ -233,7 +378,7 @@ sub main {
 
             if ($next_word_time <= $current_time and !$paused) {
                 $current_word = shift @words;
-                $current_orp = find_ORP($current_word, $ORPloc);
+                $current_orp = find_ORP($current_word);
                 $next_word_time += word_time($current_word);
                 $wordcounter++;
                 $lettercounter += length($current_word);
@@ -241,15 +386,20 @@ sub main {
             }
 
             if ($next_input_time <= $current_time) {
-                process_keys($current_word, $current_orp, $wn);
-                $next_input_time += 0.05; # checking for input 20 times / second seems to give a reasonably responsive UI
+                my $result = process_keys($current_word, $current_orp, $wn);
+                if ($result eq 'quit') {
+                    print_stats();
+                    return;
+                }
+                $next_input_time += 0.05;
             }
 
-            # redrawing the word on each "frame" gives a more responsive UI
-            # (we don't have to wait for the word to change to display changed stats like wpm)
             show_word($current_word, $current_orp);
+            show_progress();
 
-            my $sleep_time = ($next_word_time < $next_input_time and !$paused) ? $next_word_time-$current_time : $next_input_time-$current_time;
+            my $sleep_time = ($next_word_time < $next_input_time and !$paused) 
+                ? $next_word_time - $current_time 
+                : $next_input_time - $current_time;
             sleep($sleep_time) if ($sleep_time > 0);
         }
     }
@@ -258,41 +408,4 @@ sub main {
     sleep(1);
 }
 
-
-package rawinput;
-
-# An ad-hoc interface to interactive terminal input.  Term::Screen *should*
-# have been a natural choice here, unfortunately it is fixated at reading
-# from stdin instead of /dev/tty. Tough.
-
-sub new {
-    my $class = shift;
-    my $self;
-    open $self, '/dev/tty';
-    bless $self, $class;
-    stty('min 1', '-icanon', '-echo');
-    return $self;
-}
-
-sub DESTROY {
-    stty('cooked', 'echo');
-}
-
-sub stty {
-    my $self = shift;
-    eval { system('stty', $^O eq 'darwin' ? '-f' : '-F', '/dev/tty', @_); };
-}
-
-sub key_pressed {
-    my $self = shift;
-    my $readfields = '';
-    vec($readfields, fileno($self), 1) = 1;
-    my $ready = 0;
-    eval { $ready = select($readfields, undef, undef, 0); };
-    return $ready;
-}
-
-sub getch {
-    my $self = shift;
-    getc($self);
-}
+main();
