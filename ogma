@@ -16,32 +16,11 @@
 # This combined work is distributed under GPL v3.
 #
 # Usage: ogma [-w WORDSPERMINUTE] [-r RESUMEPOINT] [-m] [-b] file.txt
-#
-# The default of 250 words per minute is very timid, designed so that
-# you get used to this.  Be sure to try cranking this up, 500wpm
-# should still be fairly easy to follow even for beginners.
-#
-# ogma can join short words together if you specify the -m switch.
-# It did not work well for pasky so far, though.
-#
-# ogma is slightly interactive, with these controls accepted:
-#
-#   [ - slow down by 10%
-#   ] - speed up by 10%
-#   b - toggle bionic reading mode
-#   m - toggle multiword mode
-#   q - quit
-#   space - pause (and show the last two lines)
 
 use warnings;
 use strict;
 use autodie;
 use v5.14;
-
-my $wpm = 250;
-my $resume = 0;
-my $multiword = 0;
-my $bionic = 0;
 
 use utf8;
 binmode(STDIN, ":encoding(UTF-8)");
@@ -52,6 +31,11 @@ use Term::ReadKey;
 use POSIX qw(ceil floor);
 use Time::HiRes qw(time sleep gettimeofday tv_interval);
 use Getopt::Long;
+
+my $wpm = 250;
+my $resume = 0;
+my $multiword = 0;
+my $bionic = 0;
 
 GetOptions("wpm|w=i" => \$wpm,
        "resume|r=i" => \$resume,
@@ -105,7 +89,7 @@ sub update_terminal_size {
 }
 
 sub clear_screen {
-    print "\033[2J";  # Clear entire screen
+    print "\033[2J";
 }
 
 sub hide_cursor {
@@ -125,32 +109,31 @@ sub clear_line {
     print "\033[2K";
 }
 
-# Display functions
 sub show_guide {
     move_cursor($center_row - 1, $center_col);
     print color('red') . "v" . color('reset');
 }
 
 sub show_word {
-    my ($word, $i) = @_;
+    my ($word, $orp) = @_;
 
     # Clear the lines we'll use
     move_cursor($center_row, 1);
     clear_line();
 
-    my $pivotch = substr($word, $i, 1);
+    my $pivotch = substr($word, $orp, 1);
     $pivotch = "·" if $pivotch eq ' ';
 
     # Calculate starting column so ORP is at center
-    my $word_start_col = $center_col - $i;
+    my $word_start_col = $center_col - $orp;
 
     move_cursor($center_row, $word_start_col);
 
     # Display word with formatting
-    print color("bold") . substr($word, 0, $i)
+    print color("bold") . substr($word, 0, $orp)
         . color("red") . $pivotch . color("reset")
         . ($bionic ? "" : color("bold"))
-        . substr($word, $i+1)
+        . substr($word, $orp+1)
         . color("reset");
 }
 
@@ -206,32 +189,35 @@ sub show_progress {
 }
 
 sub print_context {
-    my ($wn) = @_;
-
-    # Show context lines above the word
-    if ($lastlines[1]) {
-        move_cursor($center_row - 3, 1);
-        clear_line();
-        # Truncate if too long for screen
-        my $line = $lastlines[1];
-        $line = substr($line, 0, $term_width - 2) if length($line) > $term_width - 2;
-        print $line;
-    }
-
-    if ($lastlines[0]) {
-        move_cursor($center_row - 2, 1);
-        clear_line();
-
-        my $line0 = $lastlines[0];
-        $line0 = substr($line0, 0, $term_width - 2) if length($line0) > $term_width - 2;
-
-        # Highlight current word in context
-        $line0 =~ s/^((?:.*?(?:-|\s)+){$wn})(.*?)(-|\s)/$1 . colored($2, 'yellow') . $3/e;
-        print $line0;
-    }
+    my (@words, $index) = @_;
 }
 
-# Word timing
+# sub print_context {
+#     my ($wn) = @_;
+#
+#     # Show context lines above the word
+#     if ($lastlines[1]) {
+#         move_cursor($center_row - 3, 1);
+#         clear_line();
+#         # Truncate if too long for screen
+#         my $line = $lastlines[1];
+#         $line = substr($line, 0, $term_width - 2) if length($line) > $term_width - 2;
+#         print $line;
+#     }
+#
+#     if ($lastlines[0]) {
+#         move_cursor($center_row - 2, 1);
+#         clear_line();
+#
+#         my $line0 = $lastlines[0];
+#         $line0 = substr($line0, 0, $term_width - 2) if length($line0) > $term_width - 2;
+#
+#         # Highlight current word in context
+#         $line0 =~ s/^((?:.*?(?:-|\s)+){$wn})(.*?)(-|\s)/$1 . colored($2, 'yellow') . $3/e;
+#         print $line0;
+#     }
+# }
+
 sub find_ORP {
     my ($word) = @_;
     return 4 if (length($word) > 13);
@@ -258,7 +244,7 @@ sub word_time {
 }
 
 sub process_keys {
-    my ($word, $i, $wn) = @_;
+    my ($word, $orp, $word_index) = @_;
 
     while (defined(my $ch = ReadKey(-1))) {  # -1 = non-blocking
         if ($ch eq '[') {
@@ -276,9 +262,9 @@ sub process_keys {
         } elsif ($ch eq ' ') {
             $paused = not $paused;
             if ($paused) {
-                print_context($wn);
+                print_context($word_index);
                 show_guide();
-                show_word($word, $i);
+                show_word($word, $orp);
             } else {
                 $next_word_time = time();
                 # Clear context lines
@@ -371,7 +357,6 @@ sub main {
     }
 
     print_stats();
-    sleep(1);
 }
 
 main();
