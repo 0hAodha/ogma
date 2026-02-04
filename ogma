@@ -303,6 +303,7 @@ $SIG{INT} = sub {
 $SIG{WINCH} = sub {
     update_terminal_size();
     clear_screen();
+    show_guide();
 };
 
 sub main {
