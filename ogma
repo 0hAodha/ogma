@@ -334,7 +334,7 @@ sub main {
             my $current_time = time();
 
             if ($next_word_time <= $current_time and !$paused) {
-                $next_word_time += word_time($word);
+                $next_word_time += word_time($words[$index+1]);
 
                 $wordcounter++;
                 $lettercounter += length($word);
