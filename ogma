@@ -248,10 +248,10 @@ sub process_keys {
 
     while (defined(my $ch = ReadKey(-1))) {  # -1 = non-blocking
         if ($ch eq '[') {
-            $wpm = int($wpm * 0.9);
+            $wpm -= 10;
 
         } elsif ($ch eq ']') {
-            $wpm = int($wpm * 1.1);
+            $wpm += 10;
 
         } elsif ($ch eq 'b') {
             $bionic = not $bionic;
