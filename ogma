@@ -285,18 +285,19 @@ sub process_keys {
 sub print_stats {
     my $elapsed = tv_interval($t0, [gettimeofday]);
     my $truewpm = $wordcounter / $elapsed * 60;
+    my $resume_word = $wordcounter + $resume;
 
     cleanup_terminal();
 
     printf("\n%.2fs, %d words, %d letters, %s%.2f%s true wpm\n",
         $elapsed, $wordcounter, $lettercounter,
         color('bold green'), $truewpm, color('reset'));
+
+    say "To resume from this point run with argument -r $resume_word";
 }
 
 $SIG{INT} = sub {
     print_stats();
-    my $resume_word = $wordcounter + $resume;
-    say " To resume from this point run with argument -r $resume_word";
     exit;
 };
 
@@ -309,6 +310,11 @@ $SIG{WINCH} = sub {
 sub main {
     my @lines = <>;
     my @words = grep { length } map { split /\s+/ } @lines;
+
+    if ($resume) {
+        splice(@words, 0, $resume);
+    }
+
     $total_words = scalar(@words);
 
     init_terminal();
