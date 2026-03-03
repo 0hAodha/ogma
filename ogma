@@ -31,23 +31,66 @@ use Term::ReadKey;
 use POSIX qw(ceil floor);
 use Time::HiRes qw(time sleep gettimeofday tv_interval);
 use Getopt::Long;
+use TOML::Tiny qw(from_toml);
 
-my $wpm = 250;
-my $resume = 0;
-my $multiword = 0;
-my $bionic = 0;
+my %defaults = (
+    wpm          => 250,
+    resume       => 0,
+    multiword    => 0,
+    bionic       => 0,
+    wordtime     => 0.9,
+    lentime      => 0.04,
+    commatime    => 2,
+    fstoptime    => 3,
+    multitime    => 1.2,
+    firsttime    => 0.2,
+    filehandlers => [],
+);
 
-GetOptions("wpm|w=i" => \$wpm,
-       "resume|r=i" => \$resume,
-       "multiword|m" => \$multiword,
-       "bionic|b" => \$bionic);
+sub load_config {
+    my $config_file_path = ($ENV{XDG_CONFIG_HOME} // "$ENV{HOME}/.config") . "/ogma/config.toml";
+    my %config = %defaults;
 
-my $wordtime = 0.9;
-my $lentime = 0.04;
-my $commatime = 2;
-my $fstoptime = 3;
-my $multitime = 1.2;
-my $firsttime = 0.2;
+    if (-f $config_file_path) {
+        open(my $config_file, '<:encoding(UTF-8)', $config_file_path);
+        my $toml = do { local $/; <$config_file> };
+        close($config_file);
+
+        my ($parsed, $parse_error) = from_toml($toml);
+
+        if ($parse_error) {
+            die("Error parsing config file: $parse_error\n");
+        }
+
+        if (my $timing_config = $parsed->{timing}) {
+            for my $key (qw(wpm wordtime lentime commatime fstoptime multitime firsttime)) {
+                $config{$key} = $timing_config->{$key} if defined $timing_config->{$key};
+            }
+        }
+
+        if (my $display_config = $parsed->{display}) {
+            for my $key (qw(multiword bionic)) {
+                $config{$key} = $display_config->{$key} ? 1 : 0 if defined $display_config->{$key};
+            }
+        }
+
+        if (my $filehandlers = $parsed->{filehandler}) {
+            $config{filehandlers} = $filehandlers;
+        }
+    }
+
+    return \%config;
+}
+
+my $config = load_config();
+
+GetOptions(
+    "wpm|w=i"     => \$config->{wpm},
+    "resume|r=i"  => \$config->{resume},
+    "multiword|m" => \$config->{multiword},
+    "bionic|b"    => \$config->{bionic},
+);
+
 my $paused = 0;
 my $next_word_time = 0;
 my $next_input_time = 0;
@@ -132,7 +175,7 @@ sub show_word {
     # Display word with formatting
     print color("bold") . substr($word, 0, $orp)
         . color("red") . $pivotch . color("reset")
-        . ($bionic ? "" : color("bold"))
+        . ($config->{bionic} ? "" : color("bold"))
         . substr($word, $orp+1)
         . color("reset");
 }
@@ -143,17 +186,17 @@ sub show_progress {
     # Bottom left: Speed and status
     move_cursor($bottom_row, 1);
     clear_line();
-    print "$wpm wpm";
+    print "$config->{wpm} wpm";
 
     if ($paused) {
         print "  " . color("yellow") . "PAUSED" . color("reset");
     }
 
-    if ($multiword) {
+    if ($config->{multiword}) {
         print "  " . color("cyan") . "[multi]" . color("reset");
     }
 
-    if ($bionic) {
+    if ($config->{bionic}) {
         print "  " . color("cyan") . "[bionic]" . color("reset");
     }
 
@@ -180,9 +223,9 @@ sub show_progress {
     }
 
     # Bottom right: Word count
-    my $count_text = sprintf("Word %d", $wordcounter + $resume);
+    my $count_text = sprintf("Word %d", $wordcounter + $config->{resume});
     if ($total_words > 0) {
-        $count_text .= sprintf("/%d", $total_words + $resume);
+        $count_text .= sprintf("/%d", $total_words + $config->{resume});
     }
     move_cursor($bottom_row, $term_width - length($count_text) - 1);
     print $count_text;
@@ -227,18 +270,18 @@ sub find_ORP {
 sub word_time {
     my ($word) = @_;
 
-    my $time = $wordtime;
+    my $time = $config->{wordtime};
     if ($word =~ /[.?!]\W*$/) {
-        $time = $fstoptime;
+        $time = $config->{fstoptime};
     } elsif ($word =~ /[:;,]\W*$/) {
-        $time = $commatime;
+        $time = $config->{commatime};
     } elsif ($word =~ / /) {
-        $time = $multitime;
+        $time = $config->{multitime};
     }
-    $time += sqrt(length($word)) * $lentime;
-    $time *= 60 / $wpm;
+    $time += sqrt(length($word)) * $config->{lentime};
+    $time *= 60 / $config->{wpm};
 
-    $time = $firsttime if ($wordcounter == 0 and $time < $firsttime);
+    $time = $config->{firsttime} if ($wordcounter == 0 and $time < $config->{firsttime});
 
     return $time;
 }
@@ -248,19 +291,19 @@ sub process_keys {
 
     while (defined(my $ch = ReadKey(-1))) {  # -1 = non-blocking
         if ($ch eq '[') {
-            $wpm -= 10;
+            $config->{wpm} -= 10;
 
         } elsif ($ch eq ']') {
-            $wpm += 10;
+            $config->{wpm} += 10;
 
         } elsif ($ch eq 'b') {
-            $bionic = not $bionic;
+            $config->{bionic} = !$config->{bionic};
 
         } elsif ($ch eq 'm') {
-            $multiword = not $multiword;
+            $config->{multiword} = !$config->{multiword};
 
         } elsif ($ch eq ' ') {
-            $paused = not $paused;
+            $paused = !$paused;
             if ($paused) {
                 print_context($word_index);
                 show_guide();
@@ -285,19 +328,18 @@ sub process_keys {
 sub print_stats {
     my $elapsed = tv_interval($t0, [gettimeofday]);
     my $truewpm = $wordcounter / $elapsed * 60;
-    my $resume_word = $wordcounter + $resume;
 
     cleanup_terminal();
 
     printf("\n%.2fs, %d words, %d letters, %s%.2f%s true wpm\n",
         $elapsed, $wordcounter, $lettercounter,
         color('bold green'), $truewpm, color('reset'));
-
-    say "To resume from this point run with argument -r $resume_word";
 }
 
 $SIG{INT} = sub {
     print_stats();
+    my $resume_word = $wordcounter + $config->{resume};
+    say " To resume from this point run with argument -r $resume_word";
     exit;
 };
 
@@ -310,11 +352,6 @@ $SIG{WINCH} = sub {
 sub main {
     my @lines = <>;
     my @words = grep { length } map { split /\s+/ } @lines;
-
-    if ($resume) {
-        splice(@words, 0, $resume);
-    }
-
     $total_words = scalar(@words);
 
     init_terminal();
@@ -329,7 +366,7 @@ sub main {
         my $word = $words[$index];
         my $orp = find_ORP($word);
 
-        if ($multiword) {
+        if ($config->{multiword}) {
             if (length($word) < 3 and length($words[$index+1]) < 3) {
                 $word = $word . " " . $words[$index+1];
                 $index++;
