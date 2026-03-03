@@ -349,9 +349,36 @@ $SIG{WINCH} = sub {
     show_guide();
 };
 
-sub main {
-    my @lines = <>;
+sub read_words {
+    my $filename = $ARGV[0];
+    my @lines;
+
+    if (-f $filename) {
+        @lines = <>;
+    }
+
+    if ($filename) {
+        for my $handler (@{$config->{filehandlers}}) {
+            if ($filename =~ /$handler->{regex}/) {
+                my $cmd = "$handler->{command}";
+                $cmd =~ s/%f/$filename/g;
+
+                open(my $input, '-|', "$cmd")
+                    or die "Failed to run filehandler for $filename\n";
+                @lines = <$input>;
+                close($input);
+                last;
+            }
+        }
+    }
+
     my @words = grep { length } map { split /\s+/ } @lines;
+
+    return(@words);
+}
+
+sub main {
+    my @words = read_words();
     $total_words = scalar(@words);
 
     init_terminal();
