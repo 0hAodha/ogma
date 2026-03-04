@@ -359,7 +359,7 @@ sub read_words {
         for my $handler (@{$config->{filehandlers}}) {
             if ($filename =~ /$handler->{regex}/) {
                 my $cmd = "$handler->{command}";
-                $cmd =~ s/%f/$filename/g;
+                $cmd =~ s/%f/"$filename"/g;
 
                 open(my $input, '-|', "$cmd")
                     or die "Failed to run filehandler for $filename\n";
