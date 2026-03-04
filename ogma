@@ -355,10 +355,6 @@ sub read_words {
     my $filename = $ARGV[0];
     my @lines;
 
-    if (-f $filename) {
-        @lines = <>;
-    }
-
     if ($filename) {
         for my $handler (@{$config->{filehandlers}}) {
             if ($filename =~ /$handler->{regex}/) {
@@ -372,6 +368,10 @@ sub read_words {
                 last;
             }
         }
+    }
+
+    if (!@lines) {
+        @lines = <>;
     }
 
     my @words = grep { length } map { split /\s+/ } @lines;
