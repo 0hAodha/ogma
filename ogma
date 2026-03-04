@@ -335,12 +335,13 @@ sub print_stats {
     printf("\n%.2fs, %d words, %d letters, %s%.2f%s true wpm\n",
         $elapsed, $wordcounter, $lettercounter,
         color('bold green'), $truewpm, color('reset'));
+
+    my $resume_word = $wordcounter + $config->{resume};
+    say("To resume from this point run with argument -r $resume_word");
 }
 
 $SIG{INT} = sub {
     print_stats();
-    my $resume_word = $wordcounter + $config->{resume};
-    say " To resume from this point run with argument -r $resume_word";
     exit;
 };
 
